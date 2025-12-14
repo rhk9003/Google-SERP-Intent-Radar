@@ -196,6 +196,9 @@ if st.button("🚀 啟動戰略雷達", type="primary"):
     # 總體進度條
     main_progress = st.progress(0)
     
+    # 建立一個列表來儲存所有報告數據
+    report_data = []
+    
     for idx, kw in enumerate(keywords):
         st.subheader(f"🔍 分析目標：{kw}")
         
@@ -238,6 +241,17 @@ if st.button("🚀 啟動戰略雷達", type="primary"):
                     st.markdown("##### 🏆 建議必勝標題")
                     for t in analysis_result.get('Killer_Titles', []):
                         st.markdown(f"- **{t['title']}**\n  - *{t['reason']}*")
+
+                    # [新增] 收集數據供下載
+                    titles_formatted = "\n".join([f"- {t['title']} ({t['reason']})" for t in analysis_result.get('Killer_Titles', [])])
+                    report_data.append({
+                        "Keyword": kw,
+                        "User_Intent_Analysis": analysis_result.get('User_Intent_Analysis', ''),
+                        "Market_Landscape": analysis_result.get('Market_Landscape', ''),
+                        "Content_Gap": analysis_result.get('Content_Gap', ''),
+                        "Winning_Strategy": analysis_result.get('Winning_Strategy', ''),
+                        "Killer_Titles": titles_formatted
+                    })
         else:
             st.error(f"❌ 無法抓取 {kw} 的資料，請檢查 API 配額。")
             
@@ -245,3 +259,35 @@ if st.button("🚀 啟動戰略雷達", type="primary"):
         main_progress.progress((idx + 1) / len(keywords))
         
     st.success("✅ 所有關鍵字分析完成！")
+
+    # [新增] 下載區塊
+    if report_data:
+        st.header("📥 下載戰略報告")
+        st.caption("將所有分析結果匯出保存")
+        
+        # 準備 DataFrame
+        df_report = pd.DataFrame(report_data)
+        
+        # 產生 CSV (使用 utf-8-sig 以確保 Excel 開啟中文不亂碼)
+        csv_data = df_report.to_csv(index=False).encode('utf-8-sig')
+        
+        # 產生 JSON
+        json_data = json.dumps(report_data, ensure_ascii=False, indent=2)
+        
+        col_d1, col_d2 = st.columns(2)
+        
+        with col_d1:
+            st.download_button(
+                label="📄 下載 Excel 友善 CSV",
+                data=csv_data,
+                file_name=f"seo_strategy_report_{int(time.time())}.csv",
+                mime="text/csv"
+            )
+            
+        with col_d2:
+            st.download_button(
+                label="📋 下載 JSON (完整結構)",
+                data=json_data,
+                file_name=f"seo_strategy_report_{int(time.time())}.json",
+                mime="application/json"
+            )
