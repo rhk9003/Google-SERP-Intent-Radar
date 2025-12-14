@@ -7,30 +7,31 @@ import random
 import json
 import altair as alt
 import streamlit.components.v1 as components
+import io
 
-# =========================
-# 0) 固定設定
-# =========================
-SEARCH_ENGINE_ID = "23e43fb5e029f4b50"  # 寫死 CX（非機密）
+# =================================================
+# 0. 固定設定
+# =================================================
+SEARCH_ENGINE_ID = "23e43fb5e029f4b50"  # CX 寫死（非機密）
 
-# =========================
-# 1) Page Config
-# =========================
+# =================================================
+# 1. Page Config
+# =================================================
 st.set_page_config(
-    page_title="Google SERP 戰略雷達 v3.1 (Strategy Only)",
+    page_title="Google SERP 戰略雷達 v3.2 (Strategy Only)",
     page_icon="🎯",
     layout="wide"
 )
 
-st.title("🎯 Google SERP 戰略雷達 v3.1")
+st.title("🎯 Google SERP 戰略雷達 v3.2")
 st.markdown("""
 ### Private SEO Weapon: Battlefield Strategy Reader  
-**只做一件事：判讀戰場 → 輸出可執行的 SEO 策略**
+**只負責一件事：SERP 戰場判讀 → 策略輸出（Excel）**
 """)
 
-# =========================
-# 2) Sidebar
-# =========================
+# =================================================
+# 2. Sidebar
+# =================================================
 with st.sidebar:
     st.header("🔑 API 設定")
     GOOGLE_API_KEY = st.text_input("Google API Key", type="password")
@@ -50,10 +51,10 @@ with st.sidebar:
     TARGET_HL = st.text_input("語言 (hl)", value="zh-TW")
     MAX_PAGES = st.slider("抓取頁數", 1, 3, 2)
 
-# =========================
-# 2.1) CSE 預覽（不耗 Quota）
-# =========================
-with st.expander("👀 Google CSE 搜尋預覽（不耗 API）"):
+# =================================================
+# 2.1 Google CSE 預覽（不耗 Quota）
+# =================================================
+with st.expander("👀 Google 搜尋預覽（不耗 API）"):
     components.html(
         f"""
         <script async src="https://cse.google.com/cse.js?cx={SEARCH_ENGINE_ID}"></script>
@@ -63,9 +64,9 @@ with st.expander("👀 Google CSE 搜尋預覽（不耗 API）"):
         scrolling=True
     )
 
-# =========================
-# 3) Helper Functions
-# =========================
+# =================================================
+# 3. Helper Functions
+# =================================================
 def detect_page_type(item):
     link = (item.get("link") or "").lower()
     title = (item.get("title") or "").lower()
@@ -84,6 +85,7 @@ def detect_page_type(item):
         return "Commercial Content"
     return "General"
 
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_serp(api_key, keyword, gl, hl, pages):
     service = build("customsearch", "v1", developerKey=api_key)
@@ -101,7 +103,7 @@ def get_serp(api_key, keyword, gl, hl, pages):
         ).execute()
 
         for i, item in enumerate(res.get("items", [])):
-            desc = item.get("snippet", "")
+            desc = item.get("snippet", "") or ""
             if len(desc) > 200:
                 desc = desc[:200] + "..."
 
@@ -112,15 +114,18 @@ def get_serp(api_key, keyword, gl, hl, pages):
                 "Description": desc,
                 "DisplayLink": item.get("displayLink")
             })
+
         time.sleep(1.2)
+
     return results
+
 
 def repair_json(api_key, broken_text, error):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-2.5-flash")
 
     prompt = f"""
-Fix the JSON below. Return ONLY valid JSON.
+Fix the JSON below and return ONLY valid JSON.
 
 Error:
 {error}
@@ -130,9 +135,12 @@ Broken JSON:
 """
     try:
         res = model.generate_content(prompt)
-        return json.loads(res.text.strip().strip("```json").strip("```"))
+        text = res.text.strip()
+        text = text.replace("```json", "").replace("```", "")
+        return json.loads(text)
     except Exception:
         return None
+
 
 def analyze_strategy(api_key, keyword, df, gl, model_name):
     genai.configure(api_key=api_key)
@@ -168,11 +176,12 @@ def analyze_strategy(api_key, keyword, df, gl, model_name):
         return json.loads(raw), raw
     except json.JSONDecodeError as e:
         fixed = repair_json(api_key, raw, e)
-        return fixed if fixed else {"error": str(e)}, raw
+        return (fixed if fixed else {"error": str(e)}), raw
 
-# =========================
-# 4) Main
-# =========================
+
+# =================================================
+# 4. Main
+# =================================================
 keywords_input = st.text_area(
     "輸入關鍵字（自動去重）",
     height=100,
@@ -185,7 +194,10 @@ if st.button("🚀 啟動戰略分析", type="primary"):
         st.stop()
 
     keywords = list(dict.fromkeys([k.strip() for k in keywords_input.split("\n") if k.strip()]))
+
+    st.caption(f"📊 預計 SERP 呼叫次數：{len(keywords) * MAX_PAGES}")
     progress = st.progress(0)
+
     reports = []
 
     for i, kw in enumerate(keywords):
@@ -211,7 +223,7 @@ if st.button("🚀 啟動戰略分析", type="primary"):
         result, raw = analyze_strategy(GEMINI_API_KEY, kw, df, TARGET_GL, MODEL_NAME)
 
         if "error" in result:
-            st.error("策略解析失敗")
+            st.error("❌ 策略解析失敗")
             st.text(raw)
         else:
             st.markdown("### 🧠 策略結論")
@@ -228,7 +240,7 @@ if st.button("🚀 啟動戰略分析", type="primary"):
 
             st.markdown("**必勝標題**")
             for t in result["Killer_Titles"]:
-                st.markdown(f"- {t['title']}（{t['reason']}）")
+                st.markdown(f"- {t['title']}｜{t['reason']}")
 
             result["Keyword"] = kw
             reports.append(result)
@@ -238,11 +250,38 @@ if st.button("🚀 啟動戰略分析", type="primary"):
 
     st.success("✅ 全部策略分析完成")
 
+    # =================================================
+    # 5. Excel 輸出（單一工作表，AI 友善）
+    # =================================================
     if reports:
-        st.header("📥 下載")
+        rows = []
+        for r in reports:
+            rows.append({
+                "Keyword": r.get("Keyword", ""),
+                "User_Intent": r.get("User_Intent", ""),
+                "Battlefield_Status": r.get("Battlefield_Status", ""),
+                "Opportunity_Gap": r.get("Opportunity_Gap", ""),
+                "Recommended_Page_Type": r.get("Recommended_Page_Type", ""),
+                "Winning_Angles": "\n".join(
+                    [f"- {a.get('angle')}（{a.get('target')}）"
+                     for a in r.get("Winning_Angles", [])]
+                ),
+                "Killer_Titles": "\n".join(
+                    [f"- {t.get('title')}｜{t.get('reason')}"
+                     for t in r.get("Killer_Titles", [])]
+                ),
+                "Raw_JSON": json.dumps(r, ensure_ascii=False)
+            })
+
+        df_excel = pd.DataFrame(rows)
+
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            df_excel.to_excel(writer, sheet_name="Strategy", index=False)
+
         st.download_button(
-            "下載 JSON",
-            json.dumps(reports, ensure_ascii=False, indent=2),
-            "seo_strategy.json",
-            "application/json"
+            label="📊 下載 Excel 策略報告（單一工作表）",
+            data=buffer.getvalue(),
+            file_name=f"seo_strategy_{int(time.time())}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
