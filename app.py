@@ -6,6 +6,7 @@ import time
 import random
 import json
 import altair as alt
+import streamlit.components.v1 as components # [新增] 用於嵌入 HTML 元件
 
 # --- 1. 頁面基礎設定 ---
 st.set_page_config(
@@ -46,6 +47,19 @@ with st.sidebar:
     TARGET_GL = st.text_input("地區 (gl)", value="tw", help="例如: tw, us, jp")
     TARGET_HL = st.text_input("語言 (hl)", value="zh-TW", help="例如: zh-TW, en")
     MAX_PAGES = st.slider("抓取頁數", 1, 3, 2, help="1頁=Top10, 2頁=Top20 (注意配額消耗)")
+
+# [新增] 手動搜尋驗證區塊 (Google CSE Widget)
+if SEARCH_ENGINE_ID:
+    with st.expander("👀 手動搜尋驗證 (Google Programmable Search 預覽)"):
+        st.caption("此區塊不消耗 API 配額，可直接預覽您的 Custom Search Engine 結果。")
+        components.html(
+            f"""
+            <script async src="https://cse.google.com/cse.js?cx={SEARCH_ENGINE_ID}"></script>
+            <div class="gcse-search"></div>
+            """,
+            height=600, 
+            scrolling=True
+        )
 
 # --- 3. 核心工具函式庫 ---
 
