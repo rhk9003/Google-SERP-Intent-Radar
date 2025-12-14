@@ -16,7 +16,7 @@ st.set_page_config(
 st.title("🌐 Google SERP 戰略雷達 v2.0")
 st.markdown("""
 ### Private SEO Weapon: Localized Intent Analysis
-此工具透過 Google Custom Search API 抓取真實搜尋結果 (SERP)，並利用 Gemini 進行意圖解碼與缺口分析。
+此工具透過 Google Custom Search API 抓取真實搜尋結果 (SERP)，並利用 Gemini 進行意圖解碼與內容缺口分析。
 """)
 
 # --- 2. 側邊欄：設定與金鑰 ---
@@ -24,7 +24,11 @@ with st.sidebar:
     st.header("🔑 啟動金鑰")
     st.info("請確保已啟用 Google Custom Search API")
     GOOGLE_API_KEY = st.text_input("Google API Key", type="password")
-    SEARCH_ENGINE_ID = st.text_input("Search Engine ID (CX)", type="password")
+    
+    # [防呆機制] 自動移除使用者可能不小心貼上的 "cx=" 前綴
+    raw_cx = st.text_input("Search Engine ID (CX)", type="password")
+    SEARCH_ENGINE_ID = raw_cx.replace("cx=", "").strip() if raw_cx else ""
+    
     GEMINI_API_KEY = st.text_input("Gemini API Key", type="password")
 
     st.divider()
@@ -37,7 +41,6 @@ with st.sidebar:
 def detect_page_type(item):
     """根據 URL 特徵與 Snippet 結構，簡單判斷頁面屬性"""
     link = item.get('link', '').lower()
-    snippet = item.get('snippet', '').lower()
     
     # 特徵關鍵字庫
     if any(x in link for x in ['forum', 'ptt.cc', 'dcard.tw', 'mobile01', 'reddit']):
@@ -142,6 +145,9 @@ def analyze_intent_with_gemini(api_key, keyword, df, gl):
     }}
     """
     
+    # [修正] 初始化 response 變數，避免 UnboundLocalError
+    response = None
+    
     try:
         response = model.generate_content(prompt)
         # 清理可能存在的 markdown 標記
@@ -152,7 +158,15 @@ def analyze_intent_with_gemini(api_key, keyword, df, gl):
             clean_text = clean_text[:-3]
         return json.loads(clean_text)
     except Exception as e:
-        return {"error": f"AI 解析失敗: {str(e)}", "raw_text": response.text}
+        # [修正] 更安全的錯誤處理邏輯
+        raw_text_content = "無回應內容"
+        if response:
+            try:
+                raw_text_content = response.text
+            except:
+                raw_text_content = "無法讀取回應文字"
+                
+        return {"error": f"AI 解析失敗: {str(e)}", "raw_text": raw_text_content}
 
 # --- 6. 主程式執行邏輯 ---
 keywords_input = st.text_area("輸入關鍵字 (一行一個)", height=100, placeholder="空氣清淨機 推薦\nCRM 系統比較\n台北 燒肉 2025")
@@ -191,8 +205,10 @@ if st.button("🚀 啟動戰略雷達", type="primary"):
                 analysis_result = analyze_intent_with_gemini(GEMINI_API_KEY, kw, df, TARGET_GL)
                 
                 if "error" in analysis_result:
-                    st.error("AI 分析發生錯誤")
-                    st.text(analysis_result["raw_text"])
+                    st.error(f"❌ {analysis_result['error']}")
+                    # 只有當有原始文字時才顯示，避免畫面混亂
+                    if analysis_result["raw_text"] != "無回應內容":
+                        st.text(f"Raw Output: {analysis_result['raw_text']}")
                 else:
                     # 美化輸出
                     st.markdown("#### 📝 戰略分析報告")
