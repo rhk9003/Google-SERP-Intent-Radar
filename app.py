@@ -44,7 +44,7 @@ with st.sidebar:
     st.header("🧠 模型")
     MODEL_NAME = st.selectbox(
         "分析模型",
-        ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+        ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-pro-preview"],
         index=0
     )
 
