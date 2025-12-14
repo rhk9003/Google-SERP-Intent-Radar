@@ -32,6 +32,15 @@ with st.sidebar:
     GEMINI_API_KEY = st.text_input("Gemini API Key", type="password")
 
     st.divider()
+    st.header("🧠 模型設定")
+    MODEL_NAME = st.selectbox(
+        "選擇 AI 模型",
+        ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-pro-preview"],
+        index=0,
+        help="Flash 速度快且便宜；Pro 推理能力強；3.0 Preview 為最新最強大模型 (需注意 API 配額)"
+    )
+
+    st.divider()
     st.header("🌍 戰場設定")
     TARGET_GL = st.text_input("地區 (gl)", value="tw", help="搜尋結果的地理位置，例如: tw, us, jp")
     TARGET_HL = st.text_input("語言 (hl)", value="zh-TW", help="介面語言，例如: zh-TW, en")
@@ -117,9 +126,10 @@ def get_google_serp_data(api_key, cx, keyword, gl='tw', hl='zh-TW', pages=1):
     return all_results
 
 # --- 5. 核心功能：Gemini 意圖分析 (JSON 輸出) ---
-def analyze_intent_with_gemini(api_key, keyword, df, gl):
+def analyze_intent_with_gemini(api_key, keyword, df, gl, model_name):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # [更新] 使用使用者選擇的模型
+    model = genai.GenerativeModel(model_name)
     
     # 精簡資料以節省 Token
     data_str = df[['Rank', 'Type', 'Title', 'Description', 'DisplayLink']].to_string(index=False)
@@ -201,8 +211,9 @@ if st.button("🚀 啟動戰略雷達", type="primary"):
                 st.dataframe(df, use_container_width=True)
             
             # 3. AI 分析
-            with st.spinner(f"🧠 Gemini 正在計算戰略 ({kw})..."):
-                analysis_result = analyze_intent_with_gemini(GEMINI_API_KEY, kw, df, TARGET_GL)
+            with st.spinner(f"🧠 {MODEL_NAME} 正在計算戰略 ({kw})..."):
+                # [更新] 傳入 MODEL_NAME
+                analysis_result = analyze_intent_with_gemini(GEMINI_API_KEY, kw, df, TARGET_GL, MODEL_NAME)
                 
                 if "error" in analysis_result:
                     st.error(f"❌ {analysis_result['error']}")
