@@ -851,145 +851,202 @@ tab1, tab2 = st.tabs(["🔍 第一階段：關鍵字探索", "📊 第二階段�
 with tab1:
     st.markdown("""
     ### 🔍 關鍵字探索
-    輸入產品頁面網址，AI 將自動萃取高價值關鍵字並擴展相關詞彙。
+    選擇起點：從網頁萃取關鍵字，或直接輸入關鍵字開始深度展開。
     """)
-    
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        input_url = st.text_input(
-            "網頁網址",
-            placeholder="https://example.com/product-page",
-            help="輸入產品或服務頁面的網址"
+
+    explore_mode = st.radio(
+        "探索模式",
+        ["📝 直接輸入關鍵字", "🌐 從網頁萃取關鍵字"],
+        horizontal=True,
+        key="explore_mode"
+    )
+
+    if explore_mode == "📝 直接輸入關鍵字":
+        # ── 模式 A：直接輸入關鍵字 ──
+        direct_keywords_input = st.text_area(
+            "輸入關鍵字（每行一個）",
+            height=120,
+            placeholder="益生菌推薦\n益生菌功效\n益生菌副作用"
         )
-    with col2:
-        product_name = st.text_input(
-            "產品/服務名稱",
-            placeholder="例：益生菌保健食品",
-            help="用於引導 AI 萃取更精準的關鍵字"
-        )
-    
-    # 備用方案：直接貼上內容
-    with st.expander("📝 備用方案：直接貼上網頁內容"):
-        manual_content = st.text_area(
-            "貼上網頁內容（若網址無法抓取時使用）",
-            height=200,
-            placeholder="將網頁的主要文字內容貼在這裡..."
-        )
-    
-    if st.button("🚀 開始關鍵字探索", type="primary", key="phase1_btn"):
-        if not (GOOGLE_API_KEY and GEMINI_API_KEY):
-            st.error("請先在側邊欄輸入 Google API Key 與 Gemini API Key")
-            st.stop()
-        
-        if not product_name:
-            st.warning("請輸入產品/服務名稱")
-            st.stop()
-        
-        keywords_data = None
-        error = None
-        
-        # 優先使用 PDF 轉換 + Gemini 讀取
-        if input_url:
-            with st.spinner("📄 正在將網頁轉換為 PDF..."):
-                pdf_path, pdf_error = convert_url_to_pdf(input_url)
-            
-            if pdf_path:
-                st.success("✅ PDF 轉換成功")
-                with st.spinner("🤖 AI 正在讀取 PDF 並萃取關鍵字..."):
-                    keywords_data, error = extract_keywords_with_pdf(
-                        GEMINI_API_KEY, pdf_path, product_name, MODEL_NAME
+
+        if st.button("🚀 開始深度展開與意圖分群", type="primary", key="phase1_direct_btn"):
+            if not GEMINI_API_KEY:
+                st.error("請先在側邊欄輸入 Gemini API Key")
+                st.stop()
+
+            direct_keywords = [k.strip() for k in direct_keywords_input.split("\n") if k.strip()]
+            if not direct_keywords:
+                st.warning("請輸入至少一個關鍵字")
+                st.stop()
+
+            # 深度展開
+            st.info(f"🔄 正在深度展開 {len(direct_keywords)} 個關鍵字（兩層遞迴）...")
+            progress_bar = st.progress(0)
+
+            all_keywords = []
+            deep_suggestions = {}
+
+            for idx, keyword in enumerate(direct_keywords):
+                deep = get_google_suggestions_deep(keyword, TARGET_GL, TARGET_HL, depth=2)
+                deep_suggestions[keyword] = deep
+                related = deep.get(1, []) + deep.get(2, [])
+
+                all_keywords.append({
+                    "category": "direct_input",
+                    "category_name": "直接輸入",
+                    "keyword": keyword,
+                    "search_intent": "",
+                    "related": related
+                })
+                progress_bar.progress((idx + 1) / len(direct_keywords))
+
+            progress_bar.empty()
+            st.session_state.phase1_keywords = all_keywords
+            st.session_state.deep_suggestions = deep_suggestions
+
+            total_l1 = sum(len(d.get(1, [])) for d in deep_suggestions.values())
+            total_l2 = sum(len(d.get(2, [])) for d in deep_suggestions.values())
+            st.success(f"✅ 展開完成（第1層 {total_l1} + 第2層 {total_l2} 個長尾詞）")
+
+            # 第一層分析：長尾詞意圖分群
+            if deep_suggestions:
+                with st.spinner("🧠 AI 正在分析長尾詞意圖分群..."):
+                    suggest_analysis = analyze_suggest_intent(
+                        GEMINI_API_KEY, deep_suggestions, MODEL_NAME
                     )
-            else:
-                st.warning(f"⚠️ PDF 轉換失敗：{pdf_error}")
-                st.info("嘗試使用備用方案（HTML 文字抓取）...")
-                
-                # 備用方案：HTML 文字抓取
-                with st.spinner("🌐 正在抓取網頁內容..."):
-                    content, fetch_error = fetch_webpage_content(input_url)
-                
-                if content:
-                    with st.expander("📄 抓取到的內容預覽", expanded=False):
-                        st.text(content[:2000] + "..." if len(content) > 2000 else content)
-                    
-                    with st.spinner("🤖 AI 正在分析並萃取關鍵字..."):
-                        keywords_data, error = extract_keywords_from_content(
-                            GEMINI_API_KEY, content, product_name, MODEL_NAME
-                        )
-                elif manual_content:
-                    st.info("使用您貼上的內容繼續分析...")
-                    with st.spinner("🤖 AI 正在分析並萃取關鍵字..."):
-                        keywords_data, error = extract_keywords_from_content(
-                            GEMINI_API_KEY, manual_content, product_name, MODEL_NAME
+                    st.session_state.suggest_intent_analysis = suggest_analysis
+
+    else:
+        # ── 模式 B：從網頁萃取關鍵字（原有邏輯）──
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            input_url = st.text_input(
+                "網頁網址",
+                placeholder="https://example.com/product-page",
+                help="輸入產品或服務頁面的網址"
+            )
+        with col2:
+            product_name = st.text_input(
+                "產品/服務名稱",
+                placeholder="例：益生菌保健食品",
+                help="用於引導 AI 萃取更精準的關鍵字"
+            )
+
+        with st.expander("📝 備用方案：直接貼上網頁內容"):
+            manual_content = st.text_area(
+                "貼上網頁內容（若網址無法抓取時使用）",
+                height=200,
+                placeholder="將網頁的主要文字內容貼在這裡..."
+            )
+
+        if st.button("🚀 開始關鍵字探索", type="primary", key="phase1_btn"):
+            if not (GOOGLE_API_KEY and GEMINI_API_KEY):
+                st.error("請先在側邊欄輸入 Google API Key 與 Gemini API Key")
+                st.stop()
+
+            if not product_name:
+                st.warning("請輸入產品/服務名稱")
+                st.stop()
+
+            keywords_data = None
+            error = None
+
+            if input_url:
+                with st.spinner("📄 正在將網頁轉換為 PDF..."):
+                    pdf_path, pdf_error = convert_url_to_pdf(input_url)
+
+                if pdf_path:
+                    st.success("✅ PDF 轉換成功")
+                    with st.spinner("🤖 AI 正在讀取 PDF 並萃取關鍵字..."):
+                        keywords_data, error = extract_keywords_with_pdf(
+                            GEMINI_API_KEY, pdf_path, product_name, MODEL_NAME
                         )
                 else:
-                    st.error(f"❌ 無法取得網頁內容：{fetch_error}")
-                    st.stop()
-        
-        elif manual_content:
-            # 只有手動內容
-            with st.spinner("🤖 AI 正在分析並萃取關鍵字..."):
-                keywords_data, error = extract_keywords_from_content(
-                    GEMINI_API_KEY, manual_content, product_name, MODEL_NAME
-                )
-        else:
-            st.error("請輸入網址或貼上網頁內容")
-            st.stop()
-        
-        if error:
-            st.error(f"❌ {error}")
-            st.stop()
-        
-        # 為每個關鍵字取得 Search Suggestion（深度展開兩層）
-        st.info("🔄 正在深度展開 Google Autocomplete（兩層遞迴）...")
-        progress_bar = st.progress(0)
+                    st.warning(f"⚠️ PDF 轉換失敗：{pdf_error}")
+                    st.info("嘗試使用備用方案（HTML 文字抓取）...")
 
-        all_keywords = []
-        deep_suggestions = {}
-        categories = ["pain_point_keywords", "product_keywords", "brand_keywords"]
-        category_names = {"pain_point_keywords": "痛點字", "product_keywords": "產品字", "brand_keywords": "品牌字"}
+                    with st.spinner("🌐 正在抓取網頁內容..."):
+                        content, fetch_error = fetch_webpage_content(input_url)
 
-        total_kw = sum(len(keywords_data.get(cat, [])) for cat in categories)
-        processed = 0
+                    if content:
+                        with st.expander("📄 抓取到的內容預覽", expanded=False):
+                            st.text(content[:2000] + "..." if len(content) > 2000 else content)
 
-        for category in categories:
-            kw_list = keywords_data.get(category, [])
-            for kw_item in kw_list:
-                keyword = kw_item.get("keyword", "")
-                if keyword:
-                    # 深度展開兩層
-                    deep = get_google_suggestions_deep(
-                        keyword, TARGET_GL, TARGET_HL, depth=2
+                        with st.spinner("🤖 AI 正在分析並萃取關鍵字..."):
+                            keywords_data, error = extract_keywords_from_content(
+                                GEMINI_API_KEY, content, product_name, MODEL_NAME
+                            )
+                    elif manual_content:
+                        st.info("使用您貼上的內容繼續分析...")
+                        with st.spinner("🤖 AI 正在分析並萃取關鍵字..."):
+                            keywords_data, error = extract_keywords_from_content(
+                                GEMINI_API_KEY, manual_content, product_name, MODEL_NAME
+                            )
+                    else:
+                        st.error(f"❌ 無法取得網頁內容：{fetch_error}")
+                        st.stop()
+
+            elif manual_content:
+                with st.spinner("🤖 AI 正在分析並萃取關鍵字..."):
+                    keywords_data, error = extract_keywords_from_content(
+                        GEMINI_API_KEY, manual_content, product_name, MODEL_NAME
                     )
-                    deep_suggestions[keyword] = deep
+            else:
+                st.error("請輸入網址或貼上網頁內容")
+                st.stop()
 
-                    # 合併兩層作為 related（相容舊邏輯）
-                    related = deep.get(1, []) + deep.get(2, [])
+            if error:
+                st.error(f"❌ {error}")
+                st.stop()
 
-                    all_keywords.append({
-                        "category": category,
-                        "category_name": category_names[category],
-                        "keyword": keyword,
-                        "search_intent": kw_item.get("search_intent", ""),
-                        "related": related
-                    })
-                    processed += 1
-                    progress_bar.progress(processed / total_kw)
+            # 深度展開
+            st.info("🔄 正在深度展開 Google Autocomplete（兩層遞迴）...")
+            progress_bar = st.progress(0)
 
-        progress_bar.empty()
-        st.session_state.phase1_keywords = all_keywords
-        st.session_state.deep_suggestions = deep_suggestions
+            all_keywords = []
+            deep_suggestions = {}
+            categories = ["pain_point_keywords", "product_keywords", "brand_keywords"]
+            category_names = {"pain_point_keywords": "痛點字", "product_keywords": "產品字", "brand_keywords": "品牌字"}
 
-        total_l1 = sum(len(d.get(1, [])) for d in deep_suggestions.values())
-        total_l2 = sum(len(d.get(2, [])) for d in deep_suggestions.values())
-        st.success(f"✅ 成功萃取 {len(all_keywords)} 組關鍵字（第1層 {total_l1} + 第2層 {total_l2} 個長尾詞）")
+            total_kw = sum(len(keywords_data.get(cat, [])) for cat in categories)
+            processed = 0
 
-        # 第一層分析：長尾詞意圖分群
-        if deep_suggestions:
-            with st.spinner("🧠 AI 正在分析長尾詞意圖分群..."):
-                suggest_analysis = analyze_suggest_intent(
-                    GEMINI_API_KEY, deep_suggestions, MODEL_NAME
-                )
-                st.session_state.suggest_intent_analysis = suggest_analysis
+            for category in categories:
+                kw_list = keywords_data.get(category, [])
+                for kw_item in kw_list:
+                    keyword = kw_item.get("keyword", "")
+                    if keyword:
+                        deep = get_google_suggestions_deep(
+                            keyword, TARGET_GL, TARGET_HL, depth=2
+                        )
+                        deep_suggestions[keyword] = deep
+                        related = deep.get(1, []) + deep.get(2, [])
+
+                        all_keywords.append({
+                            "category": category,
+                            "category_name": category_names[category],
+                            "keyword": keyword,
+                            "search_intent": kw_item.get("search_intent", ""),
+                            "related": related
+                        })
+                        processed += 1
+                        progress_bar.progress(processed / total_kw)
+
+            progress_bar.empty()
+            st.session_state.phase1_keywords = all_keywords
+            st.session_state.deep_suggestions = deep_suggestions
+
+            total_l1 = sum(len(d.get(1, [])) for d in deep_suggestions.values())
+            total_l2 = sum(len(d.get(2, [])) for d in deep_suggestions.values())
+            st.success(f"✅ 成功萃取 {len(all_keywords)} 組關鍵字（第1層 {total_l1} + 第2層 {total_l2} 個長尾詞）")
+
+            # 第一層分析
+            if deep_suggestions:
+                with st.spinner("🧠 AI 正在分析長尾詞意圖分群..."):
+                    suggest_analysis = analyze_suggest_intent(
+                        GEMINI_API_KEY, deep_suggestions, MODEL_NAME
+                    )
+                    st.session_state.suggest_intent_analysis = suggest_analysis
     
     # 顯示關鍵字結果與選取介面
     if st.session_state.phase1_keywords:
